@@ -1242,6 +1242,44 @@ impl<T> Singleton for NEVec<T> {
     }
 }
 
+#[cfg(feature = "rand")]
+impl<T> rand::seq::IndexedRandom for NEVec<T> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Always `false` (`NEVec` is never empty).
+    #[inline]
+    fn is_empty(&self) -> bool {
+        false
+    }
+}
+
+#[cfg(feature = "rand")]
+impl<T> rand::seq::SliceRandom for NEVec<T> {
+    #[inline]
+    fn shuffle<R>(&mut self, rng: &mut R)
+    where
+        R: rand::Rng + ?Sized,
+    {
+        self.inner.shuffle(rng);
+    }
+
+    #[inline]
+    fn partial_shuffle<R>(
+        &mut self,
+        rng: &mut R,
+        amount: usize,
+    ) -> (&mut [Self::Output], &mut [Self::Output])
+    where
+        Self::Output: Sized,
+        R: rand::Rng + ?Sized,
+    {
+        self.inner.partial_shuffle(rng, amount)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::NEVec;
@@ -1474,5 +1512,50 @@ mod tests {
             }
         });
         assert_eq!(Ok(nev![4]), result, "only 3+1 = 4 should remain");
+    }
+
+    #[cfg(feature = "rand")]
+    mod rand {
+        use rand::seq::{IndexedRandom, SliceRandom};
+
+        /// An rng that always returns the same value.
+        struct BadRng;
+
+        impl rand::TryRng for BadRng {
+            type Error = core::convert::Infallible;
+
+            fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+                let mut bytes = [0; 4];
+                self.try_fill_bytes(&mut bytes);
+                Ok(u32::from_le_bytes(bytes))
+            }
+
+            fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+                let mut bytes = [0; 8];
+                self.try_fill_bytes(&mut bytes);
+                Ok(u64::from_le_bytes(bytes))
+            }
+
+            fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+                for byte in dst {
+                    *byte = 4; // chosen by fair dice roll. guaranteed to be random.
+                }
+                Ok(())
+            }
+        }
+
+        #[test]
+        fn shuffle() {
+            let mut v = nev![0, 1, 2, 3];
+            v.shuffle(&mut BadRng);
+            assert_eq!(v.as_ref(), &[1, 0, 2, 3]);
+        }
+
+        #[test]
+        fn choose() {
+            let v = nev![0, 1, 2, 3];
+            let res = v.choose(&mut BadRng).unwrap();
+            assert_eq!(*res, 0);
+        }
     }
 }

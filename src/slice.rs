@@ -226,15 +226,29 @@ impl<T: fmt::Debug> fmt::Debug for NEChunks<'_, T> {
     }
 }
 
+#[cfg(feature = "rand")]
+impl<'a, T> rand::seq::IndexedRandom for NESlice<'a, T> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Always `false` (`NESlice` is never empty).
+    #[inline]
+    fn is_empty(&self) -> bool {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
 
-    use crate::nev;
-    use crate::slice::NEChunks;
     use crate::NESlice;
     use crate::NEVec;
     use crate::NonEmptyIterator;
+    use crate::nev;
+    use crate::slice::NEChunks;
 
     #[test]
     fn test_from_conversion() {
@@ -377,5 +391,43 @@ mod tests {
         let next = iter.next().unwrap();
         assert_eq!(1, next.len().get());
         assert!(iter.next().is_none());
+    }
+
+    #[cfg(feature = "rand")]
+    mod rand {
+        use rand::seq::IndexedRandom;
+
+        /// An rng that always returns the same value.
+        struct BadRng;
+
+        impl rand::TryRng for BadRng {
+            type Error = core::convert::Infallible;
+
+            fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+                let mut bytes = [0; 4];
+                self.try_fill_bytes(&mut bytes);
+                Ok(u32::from_le_bytes(bytes))
+            }
+
+            fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+                let mut bytes = [0; 8];
+                self.try_fill_bytes(&mut bytes);
+                Ok(u64::from_le_bytes(bytes))
+            }
+
+            fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+                for byte in dst {
+                    *byte = 4; // chosen by fair dice roll. guaranteed to be random.
+                }
+                Ok(())
+            }
+        }
+
+        #[test]
+        fn choose() {
+            let slice = crate::NESlice::try_from_slice(&[0, 1, 2, 3]).unwrap();
+            let res = slice.choose(&mut BadRng).unwrap();
+            assert_eq!(*res, 0);
+        }
     }
 }
